@@ -23,7 +23,7 @@ func main() {
 	router.HandleFunc("/user/{id}", routes.GetUserHandler).Methods("GET")
 	router.HandleFunc("/user", routes.CreateUserHandler).Methods("POST")
 	router.HandleFunc("/user", routes.UpdateUserHandler).Methods("PUT")
-	router.HandleFunc("/user", routes.DeleteUserHandler).Methods("DELETE")
+	router.HandleFunc("/user/{id}", routes.DeleteUserHandler).Methods("DELETE")
 
 	http.ListenAndServe(":7002", router)
 }
