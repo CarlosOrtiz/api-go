@@ -8,6 +8,7 @@ import (
 
 	"github.com/CarlosOrtiz/api-go/config"
 	"github.com/CarlosOrtiz/api-go/config/dto"
+	"github.com/CarlosOrtiz/api-go/config/utils"
 	"github.com/CarlosOrtiz/api-go/database"
 	"github.com/CarlosOrtiz/api-go/models"
 	"github.com/gorilla/mux"
@@ -15,18 +16,108 @@ import (
 
 func GetUsersHandler(w http.ResponseWriter, r *http.Request) {
 	var users []models.User
-	database.DB.Find(&users)
+	var totalItems int64
+
+	/* pageStr := r.URL.Query().Get("page")
+	quantityStr := r.URL.Query().Get("quantity") */
+	order := r.URL.Query().Get("order")
+	name := r.URL.Query().Get("name")
+
+	if order != "" && strings.ToLower(order) != "asc" && strings.ToLower(order) != "desc" {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(config.BasicResponse{
+			Success: false,
+			Detail:  "INVALID_VALUE_ORDER",
+			Message: "Valor invalido para el parametro 'order'. Debe ser 'asc' o 'desc'.",
+		})
+		return
+	}
+
+	/* page, err := strconv.Atoi(pageStr)
+	if err != nil || page <= 0 {ƒ
+		page = 1
+	}
+
+	quantity, err := strconv.Atoi(quantityStr)
+	if err != nil || quantity <= 0 {
+		quantity = 10
+	} */
+
+	//init query builder
+	query := database.DB.Model(&models.User{})
+
+	if name != "" {
+		name = strings.ToLower(name)
+		query = query.Where("LOWER(name) ILIKE ?", "%"+name+"%")
+	}
+
+	query.Count(&totalItems)
+
+	var err error
+	query, page, quantity, err := utils.Paginate(w, r, query) // Modificamos aquí para recibir `quantity`
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(config.BasicResponse{
+			Success: false,
+			Detail:  "Error en los parámetros de paginación.",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	//offset := (page - 1) * quantity
+
+	if order == "desc" {
+		query = query.Order("created_at desc")
+	} else {
+		query = query.Order("created_at asc")
+	}
+
+	//query = query.Preload("Tasks").Limit(quantity).Offset(offset)
+
+	// end query with query.Find get all users
+
+	/* if err := query.Find(&users).Error; err != nil {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(config.BasicResponse{
+			Success: false,
+			Detail:  "Error SQL",
+			Message: err.Error(),
+		})
+		return
+	} */
+
+	if err := query.Preload("Tasks").Find(&users).Error; err != nil {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(config.BasicResponse{
+			Success: false,
+			Detail:  "Error retrieving users",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	totalPages := int((totalItems + int64(quantity) - 1) / int64(quantity)) // Usamos `quantity`
+
+	response := map[string]interface{}{
+		"items": users,
+		"meta": map[string]interface{}{
+			"totalItems":   totalItems,
+			"itemsPerPage": quantity,
+			"totalPages":   totalPages,
+			"currentPage":  page,
+		},
+	}
 
 	json.NewEncoder(w).Encode(config.BasicResponse{
 		Success: true,
-		Detail:  &users,
+		Detail:  response,
 	})
 }
 
 func GetUserHandler(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	params := mux.Vars(r)
-
 	database.DB.First(&user, params["id"])
 
 	if user.ID == 0 {
@@ -37,6 +128,9 @@ func GetUserHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	database.DB.Model(&user).Association("Tasks").Find(&user.Tasks)
+	//database.DB.Preload("Tasks").First(&user, params["id"])
 
 	json.NewEncoder(w).Encode(config.BasicResponse{
 		Success: true,
